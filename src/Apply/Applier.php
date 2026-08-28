@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sifrious\Tarrou\Apply;
 
+use DateTimeImmutable;
 use Sifrious\Tarrou\Contracts\MutationCapability;
 use Sifrious\Tarrou\Plan\ChangePlan;
 use Sifrious\Tarrou\Plan\Operation;
@@ -24,14 +25,29 @@ use Throwable;
  */
 final class Applier
 {
-    public function apply(ChangePlan $plan, Approval $approval, MutationCapability $capability): ApplyResult
-    {
+    public function apply(
+        ChangePlan $plan,
+        Approval $approval,
+        MutationCapability $capability,
+        ?DateTimeImmutable $now = null,
+    ): ApplyResult {
+        $now ??= new DateTimeImmutable;
+
         if (! $approval->covers($plan)) {
             throw ApprovalMismatch::hash($approval->planHash, $plan->hash);
         }
 
         if ($plan->requiresExplicitConfirmation() && ! $approval->confirmedHighRisk) {
             throw ApprovalMismatch::unconfirmedHighRisk();
+        }
+
+        /*
+         * Conflicts and stale evidence are refusals, not warnings. A plan whose
+         * observation has aged out describes a zone nobody has looked at
+         * recently, and applying it is acting on a memory.
+         */
+        if (! $plan->isApplicable($now)) {
+            throw ApprovalMismatch::blocked($plan->blockers($now));
         }
 
         $outcomes = [];

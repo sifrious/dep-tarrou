@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Sifrious\Tarrou\Testing\Fakes;
 
+use DateTimeImmutable;
 use RuntimeException;
 use Sifrious\Tarrou\Apply\OperationOutcome;
 use Sifrious\Tarrou\Contracts\MutationCapability;
@@ -38,6 +39,11 @@ final class InMemoryZone implements MutationCapability, ObservedStateReader
     /** @var list<string> */
     private array $failing = [];
 
+    /** @var list<string> */
+    private array $losingAcknowledgement = [];
+
+    private bool $complete = true;
+
     /**
      * @param  list<RecordSpec>  $records
      * @param  list<string>  $nameservers
@@ -70,6 +76,25 @@ final class InMemoryZone implements MutationCapability, ObservedStateReader
         return $this;
     }
 
+    /**
+     * The provider carries the change out and the acknowledgement is lost on
+     * the way back. This is the case a retry has to survive without creating
+     * the record twice.
+     */
+    public function losingAcknowledgementOn(string ...$targets): self
+    {
+        $this->losingAcknowledgement = array_values($targets);
+
+        return $this;
+    }
+
+    public function incomplete(): self
+    {
+        $this->complete = false;
+
+        return $this;
+    }
+
     public function observe(string $domain): ZoneObservedState
     {
         return new ZoneObservedState(
@@ -77,6 +102,8 @@ final class InMemoryZone implements MutationCapability, ObservedStateReader
             records: array_values($this->records),
             nameservers: $this->nameservers,
             tlsMode: $this->tlsMode,
+            observedAt: new DateTimeImmutable,
+            complete: $this->complete,
         );
     }
 
@@ -102,6 +129,19 @@ final class InMemoryZone implements MutationCapability, ObservedStateReader
             throw new RuntimeException("The provider rejected [{$operation->target}].");
         }
 
+        if (in_array($operation->target, $this->losingAcknowledgement, true)) {
+            $this->losingAcknowledgement = array_values(array_diff($this->losingAcknowledgement, [$operation->target]));
+
+            $this->carryOut($operation);
+
+            throw new RuntimeException('The connection dropped before the provider acknowledged the change.');
+        }
+
+        return $this->carryOut($operation);
+    }
+
+    private function carryOut(Operation $operation): OperationOutcome
+    {
         return match ($operation->kind) {
             OperationKind::CreateRecord, OperationKind::UpdateRecord => $this->write($operation),
             OperationKind::DeleteRecord => $this->delete($operation),

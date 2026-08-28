@@ -23,6 +23,19 @@ it does not persist anything.
 - `Operation::canonical()` deliberately excludes `reason` and `risk`. Rewording an explanation must
   not invalidate an approval.
 
+## Refusals, not warnings
+
+`ChangePlan::blockers()` is the list of reasons a plan may not be applied, and `Applier` throws on
+any of them. Three exist:
+
+- the observation did not complete and the plan would delete something;
+- the desired state declares a TLS mode the observation could not read;
+- a CNAME shares a name with other record types.
+
+Plus freshness: a plan whose observation is older than its window (an hour by default) is refused.
+An observation with no time at all is never fresh — not knowing when something was seen is worse
+than knowing it was seen a while ago.
+
 ## Tests
 
 `vendor/bin/pest`. Unit tests need no application; the Feature suite uses Testbench only to prove

@@ -44,3 +44,13 @@ CHARGES WHEN: a plan's canonical form has to change, invalidating every approval
 is versioned (`version: 1`) so the change is at least detectable.
 
 TRIGGER: fired now — MME-1570 requires approval captured for an exact plan hash.
+
+## Conflicts and freshness as refusals — 2026-08-28, MME-1567 / MME-1564
+
+SEAM: authored — the boundary between "these operations are plausible" and "the evidence behind them is good enough to act on".
+
+PAYS WHEN: an observation did not finish, a TLS mode could not be read, or a plan sat for an hour between review and apply. Each of those is a case where the operations look right and applying them is guessing.
+
+CHARGES WHEN: a legitimate apply is refused because an observation aged out, and the operator has to re-observe and re-approve. That friction is the price and it is paid every time.
+
+TRIGGER: fired now — MME-1567 requires conflicts and incomplete observations to block application, and MME-1564 requires stale observations to invalidate a plan. Neither can be expressed as a warning without making them optional.

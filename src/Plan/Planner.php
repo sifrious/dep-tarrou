@@ -7,6 +7,7 @@ namespace Sifrious\Tarrou\Plan;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use Sifrious\Tarrou\Dns\RecordSpec;
+use Sifrious\Tarrou\Dns\RecordType;
 use Sifrious\Tarrou\Dns\ZoneDesiredState;
 use Sifrious\Tarrou\Dns\ZoneObservedState;
 
@@ -42,6 +43,7 @@ final class Planner
         ZoneDesiredState $desired,
         ZoneObservedState $observed,
         ?DateTimeImmutable $generatedAt = null,
+        int $freshnessMinutes = ChangePlan::DEFAULT_FRESHNESS_MINUTES,
     ): ChangePlan {
         if ($desired->domain !== $observed->domain) {
             throw new InvalidArgumentException(
@@ -55,7 +57,96 @@ final class Planner
             ...$this->nameserverOperations($desired, $observed),
         ];
 
-        return new ChangePlan($desired->domain, $this->sort($operations), $generatedAt);
+        return new ChangePlan(
+            domain: $desired->domain,
+            operations: $this->sort($operations),
+            generatedAt: $generatedAt,
+            conflicts: $this->conflicts($desired, $observed),
+            observedAt: $observed->observedAt,
+            freshnessMinutes: $freshnessMinutes,
+        );
+    }
+
+    /**
+     * Reasons this plan may not be applied at all.
+     *
+     * Each one is a case where the operations would be plausible and the
+     * evidence behind them is not good enough to act on.
+     *
+     * @return list<Conflict>
+     */
+    private function conflicts(ZoneDesiredState $desired, ZoneObservedState $observed): array
+    {
+        $conflicts = [];
+
+        /*
+         * A partial observation is evidence about what exists and no evidence
+         * about what does not, so it may not drive a deletion.
+         */
+        if (! $observed->complete) {
+            foreach ($this->recordOperations($desired, $observed) as $operation) {
+                if ($operation->kind === OperationKind::DeleteRecord) {
+                    $conflicts[] = new Conflict(
+                        Conflict::OBSERVATION_INCOMPLETE,
+                        $desired->domain,
+                        'The observation did not complete, so an absent record is not evidence that it does not exist.',
+                    );
+
+                    break;
+                }
+            }
+        }
+
+        /*
+         * Changing a TLS mode nobody could read is a guess. The fix is a token
+         * that can read the setting, not a plan that assumes it.
+         */
+        if ($desired->tlsMode !== null && $observed->tlsMode === null) {
+            $conflicts[] = new Conflict(
+                Conflict::TLS_MODE_NOT_OBSERVED,
+                $desired->domain,
+                'The desired state declares a TLS mode and the observation does not report one.',
+            );
+        }
+
+        /*
+         * A CNAME may not coexist with other records at the same name. Where
+         * the zone already contradicts that, the plan says so rather than
+         * quietly adding to the contradiction.
+         */
+        foreach ($this->cnameCollisions($desired, $observed) as $name) {
+            $conflicts[] = new Conflict(
+                Conflict::CNAME_COEXISTS_WITH_OTHER_RECORDS,
+                $name,
+                'A CNAME is declared or observed at a name that also carries other record types.',
+            );
+        }
+
+        return $conflicts;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function cnameCollisions(ZoneDesiredState $desired, ZoneObservedState $observed): array
+    {
+        $byName = [];
+
+        foreach ([...$observed->records, ...$desired->records] as $record) {
+            $byName[$record->normalizedName()][$record->type->value] = true;
+        }
+
+        $collisions = [];
+
+        foreach ($byName as $name => $types) {
+            if (isset($types[RecordType::CNAME->value]) && count($types) > 1) {
+                $collisions[] = (string) $name;
+            }
+        }
+
+        sort($collisions);
+
+        return $collisions;
     }
 
     /**
@@ -81,6 +172,7 @@ final class Planner
                     after: $record->toArray(),
                     risk: OperationKind::CreateRecord->defaultRisk(),
                     reason: 'Declared in the desired state and absent from the zone.',
+                    policy: Operation::POLICY_DESIRED_STATE,
                 );
 
                 continue;
@@ -98,6 +190,7 @@ final class Planner
                 after: $record->toArray(),
                 risk: OperationKind::UpdateRecord->defaultRisk(),
                 reason: $this->describeAttributeChange($current, $record),
+                policy: Operation::POLICY_DESIRED_STATE,
             );
         }
 
@@ -118,6 +211,7 @@ final class Planner
                 after: null,
                 risk: OperationKind::DeleteRecord->defaultRisk(),
                 reason: "Present in the zone and absent from a desired state that manages {$current->type->value} records.",
+                policy: Operation::POLICY_UNMANAGED_REMOVAL,
             );
         }
 
@@ -141,6 +235,7 @@ final class Planner
             after: ['tls_mode' => $desired->tlsMode->value],
             risk: OperationKind::SetTlsMode->defaultRisk(),
             reason: 'Observed TLS mode differs from the declared policy.',
+            policy: Operation::POLICY_TLS_MODE,
         )];
     }
 
@@ -171,6 +266,7 @@ final class Planner
             after: ['nameservers' => $wanted],
             risk: OperationKind::SetNameservers->defaultRisk(),
             reason: 'Authoritative nameservers differ from the declared provider.',
+            policy: Operation::POLICY_AUTHORITATIVE_PROVIDER,
         )];
     }
 

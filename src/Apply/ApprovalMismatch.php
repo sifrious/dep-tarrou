@@ -16,6 +16,17 @@ final class ApprovalMismatch extends RuntimeException
         );
     }
 
+    /**
+     * @param  list<string>  $blockers
+     */
+    public static function blocked(array $blockers): self
+    {
+        return new self(
+            "This plan may not be applied:\n- ".implode("\n- ", $blockers)."\n".
+            'Re-observe the zone and rebuild the plan.'
+        );
+    }
+
     public static function unconfirmedHighRisk(): self
     {
         return new self(

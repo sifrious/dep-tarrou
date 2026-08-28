@@ -132,3 +132,55 @@ it('reports a zone that did not converge even when the provider claimed success'
 it('rejects an approval that is not a sha256 digest', function (): void {
     new Approval('nope', 'mary', new DateTimeImmutable);
 })->throws(InvalidArgumentException::class);
+
+it('refuses a plan whose observation has aged out', function (): void {
+    $zone = new InMemoryZone('example.test');
+    $desired = desiredSite();
+    $plan = (new Planner)->plan($desired, $zone->observe('example.test'));
+
+    (new Applier)->apply($plan, Approval::of($plan, 'mary'), $zone, new DateTimeImmutable('+2 hours'));
+})->throws(ApprovalMismatch::class);
+
+it('refuses a plan that carries a conflict', function (): void {
+    $zone = (new InMemoryZone('example.test', [record('A', 'stale.example.test', '198.51.100.7')]))->incomplete();
+    $plan = (new Planner)->plan(desiredSite(), $zone->observe('example.test'));
+
+    expect($plan->hasConflicts())->toBeTrue();
+
+    (new Applier)->apply($plan, Approval::of($plan, 'mary', confirmedHighRisk: true), $zone);
+})->throws(ApprovalMismatch::class);
+
+it('does not duplicate a record when the acknowledgement is lost', function (): void {
+    $zone = (new InMemoryZone('example.test'))->losingAcknowledgementOn('A|example.test|203.0.113.10');
+    $desired = desiredSite();
+    $plan = (new Planner)->plan($desired, $zone->observe('example.test'));
+    $approval = Approval::of($plan, 'mary');
+
+    $first = (new Applier)->apply($plan, $approval, $zone);
+
+    expect($first->succeeded())->toBeFalse()
+        ->and($first->countWith(OperationStatus::Failed))->toBe(1);
+
+    /*
+     * The provider did carry the change out; only the answer was lost. A retry
+     * has to see that and report convergence rather than writing it twice.
+     */
+    $retryPlan = (new Planner)->plan($desired, $zone->observe('example.test'));
+    $retry = (new Applier)->apply($retryPlan, Approval::of($retryPlan, 'mary'), $zone);
+
+    expect($retry->succeeded())->toBeTrue()
+        ->and((new Verifier($zone))->verify($desired, $retry)->converged())->toBeTrue()
+        ->and($zone->observe('example.test')->records)->toHaveCount(2);
+});
+
+it('keeps no secret anywhere in a plan or its result', function (): void {
+    $zone = new InMemoryZone('example.test');
+    $plan = (new Planner)->plan(desiredSite(), $zone->observe('example.test'));
+    $result = (new Applier)->apply($plan, Approval::of($plan, 'mary'), $zone);
+
+    $serialized = json_encode([$plan->toArray(), $result->toArray()]);
+
+    expect($serialized)->not->toContain('api_key')
+        ->not->toContain('token')
+        ->not->toContain('password');
+});
