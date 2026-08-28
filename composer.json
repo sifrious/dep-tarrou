@@ -1,0 +1,62 @@
+{
+    "name": "sifrious/tarrou",
+    "description": "Desired-state planning and approved infrastructure operations for Laravel applications.",
+    "keywords": [
+        "laravel",
+        "infrastructure",
+        "dns",
+        "planning",
+        "idempotency"
+    ],
+    "homepage": "https://github.com/sifrious/tarrou",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "sifrious",
+            "email": "mmebit@icloud.com"
+        }
+    ],
+    "require": {
+        "php": "^8.4.1",
+        "illuminate/console": "^13.0",
+        "illuminate/contracts": "^13.0",
+        "illuminate/database": "^13.0",
+        "illuminate/support": "^13.0"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.0",
+        "laravel/pint": "^1.24",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^4.0|^5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Sifrious\\Tarrou\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Sifrious\\Tarrou\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest",
+        "lint": "pint",
+        "analyse": "phpstan analyse"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Sifrious\\Tarrou\\TarrouServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -1,0 +1,8 @@
+providers:
+  - Sifrious\Tarrou\TarrouServiceProvider
+
+migrations: true
+
+env:
+  DB_CONNECTION: sqlite
+  DB_DATABASE: ':memory:'
