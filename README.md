@@ -1,5 +1,9 @@
 # Tarrou
 
+> **License:** Copyright © 2026 Sifrious. All rights reserved. This is
+> publicly viewable proprietary software, not open-source software. See
+> [LICENSE.md](LICENSE.md).
+
 Tarrou owns desired state and approved change. It answers two questions and refuses the rest:
 
 - **What would have to change** for a zone to match its declared desired state?
